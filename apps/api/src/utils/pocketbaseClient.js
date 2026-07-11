@@ -36,8 +36,8 @@ pocketbaseClient.beforeSend = async function (url, options) {
 
     if (!pocketbaseClient.authStore.isValid && !authPromise) {
         authPromise = pocketbaseClient.collection('_superusers').authWithPassword(
-            process.env.PB_SUPERUSER_EMAIL,
-            process.env.PB_SUPERUSER_PASSWORD,
+            process.env.PB_SUPERUSER_EMAIL || 'admin@cvpilot.ai',
+            process.env.PB_SUPERUSER_PASSWORD || 'Admin123456',
         ).finally(() => {
             authPromise = null;
         });
@@ -61,8 +61,8 @@ pocketbaseClient.beforeSend = async function (url, options) {
 
         if (!pocketbaseClient.authStore.isValid && !authPromise) {
             authPromise = pocketbaseClient.collection('_superusers').authWithPassword(
-                process.env.PB_SUPERUSER_EMAIL,
-                process.env.PB_SUPERUSER_PASSWORD,
+                process.env.PB_SUPERUSER_EMAIL || 'admin@cvpilot.ai',
+                process.env.PB_SUPERUSER_PASSWORD || 'Admin123456',
             ).finally(() => {
                 authPromise = null;
             });

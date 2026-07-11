@@ -6,7 +6,7 @@
 export const READY_MARKER = "[[[READY_TO_BUILD]]]";
 
 // Matches the marker with optional surrounding whitespace / brackets variants.
-const MARKER_RE = /\[\[\[\s*READY_TO_BUILD\s*\]\]\]/gi;
+const MARKER_RE = /\[\[\[\s*READY_TO_BUILD\s*\]\]\]/i;
 
 /** Returns true if the given text contains the readiness marker. */
 export function hasReadyMarker(text) {
