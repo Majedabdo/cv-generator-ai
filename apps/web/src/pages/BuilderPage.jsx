@@ -224,6 +224,34 @@ export default function BuilderPage() {
   const [jobDescription, setJobDescription] = useState("");
   const [loadStep, setLoadStep] = useState(0);
 
+  const [extracting, setExtracting] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExtracting(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await window.fetch("/hcgi/api/resume/extract", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      if (data.text) {
+        setCandidateInfo(data.text);
+        toast({ title: isAr ? "تم استخراج النص بنجاح" : "Text extracted successfully" });
+      }
+    } catch (err) {
+      toast({ variant: "destructive", title: isAr ? "فشل استخراج النص" : "Extraction failed", description: err.message });
+    } finally {
+      setExtracting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const [bilingual, setBilingual] = useState(null); // { en, ar }
   const [activeLang, setActiveLang] = useState(isAr ? "ar" : "en");
   const bundle = bilingual ? bilingual[activeLang] : null;
@@ -375,11 +403,40 @@ export default function BuilderPage() {
               </p>
             </div>
             <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
-              <Field
-                label={isAr ? "معلوماتك (تم جلبها من محادثتك مع Pilot)" : "Your details (auto-filled from your Pilot chat)"}
-                textarea rows={8} value={candidateInfo} onChange={setCandidateInfo}
-                placeholder={isAr ? "الصق سيرتك القديمة، خبرتك، تعليمك، مهاراتك…" : "Paste your old resume, experience, education, skills, achievements…"}
-              />
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-muted-foreground">{isAr ? "معلوماتك (تم جلبها تلقائياً)" : "Your details (auto-filled)"}</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.doc,.txt"
+                      className="hidden"
+                      onChange={handleUpload}
+                    />
+                    <button
+                      type="button"
+                      disabled={extracting}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-secondary/50 px-2.5 py-1 text-xs font-semibold text-primary transition hover:bg-secondary disabled:opacity-50"
+                    >
+                      {extracting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <FileUp className="h-3.5 w-3.5" />
+                      )}
+                      {isAr ? "ارفع ملف السيرة الذاتية مباشرة" : "Upload CV file directly"}
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  rows={8}
+                  value={candidateInfo}
+                  onChange={(e) => setCandidateInfo(e.target.value)}
+                  placeholder={isAr ? "الصق سيرتك القديمة، خبرتك، تعليمك، مهاراتك…" : "Paste your old resume, experience, education, skills, achievements…"}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/60"
+                />
+              </div>
               <div className="text-xs text-muted-foreground">
                 {candidateInfo.trim() ? (isAr ? "جاهز للتوليد." : "Ready to generate.") : (
                   <>{isAr ? "لا توجد محادثة؟ " : "No chat yet? "}<Link to="/chat" className="font-medium text-primary underline">{isAr ? "تحدّث مع Pilot" : "Chat with Pilot"}</Link>{isAr ? " أو الصق معلوماتك أعلاه." : " or paste your info above."}</>
