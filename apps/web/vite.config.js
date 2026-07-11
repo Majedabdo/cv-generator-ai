@@ -375,6 +375,20 @@ export default defineConfig({
 		headers: {
 			'Cross-Origin-Embedder-Policy': 'credentialless',
 		},
+		proxy: {
+			'/hcgi/api': {
+				target: 'http://localhost:3001',
+				changeOrigin: true,
+				rewrite: (path) => path.replace(/^\/hcgi\/api/, ''),
+				ws: true,
+			},
+			'/hcgi/platform': {
+				target: 'http://localhost:8090',
+				changeOrigin: true,
+				rewrite: (path) => path.replace(/^\/hcgi\/platform/, ''),
+				ws: true,
+			},
+		},
 		allowedHosts: [
 			'.app-preview.com',
 			'.app-preview.io',
