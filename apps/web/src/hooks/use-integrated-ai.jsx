@@ -380,6 +380,23 @@ function useIntegratedAi() {
 						return;
 					}
 
+					if (parsed.type === 'document_extracted') {
+						setMessages((prev) => {
+							const updated = [...prev];
+							const userMsgIndex = updated.length - 2;
+							if (userMsgIndex >= 0 && updated[userMsgIndex].role === 'user') {
+								const userMsg = updated[userMsgIndex];
+								const docText = `\n\n[ATTACHED DOCUMENT: ${parsed.data.name}]\n${parsed.data.text}`;
+								updated[userMsgIndex] = {
+									...userMsg,
+									content: userMsg.content + docText,
+								};
+							}
+							return updated;
+						});
+						continue;
+					}
+
 					handleSSEEvent(parsed);
 				}
 			}

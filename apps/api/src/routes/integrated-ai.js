@@ -61,6 +61,12 @@ router.post('/stream', integratedAiRateLimit, uploadFiles({
 	res.setHeader('Connection', 'keep-alive');
 	res.setHeader('X-Accel-Buffering', 'no');
 
+	if (documents && documents.length > 0) {
+		for (const doc of documents) {
+			res.write(`data: ${JSON.stringify({ type: 'document_extracted', data: { name: doc.name, text: doc.text } })}\n\n`);
+		}
+	}
+
 	sseStream.pipe(res, { end: false });
 
 	sseStream.on('end', () => res.end());
