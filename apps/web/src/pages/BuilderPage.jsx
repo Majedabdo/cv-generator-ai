@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ArrowLeft, Sparkles, Wand2, FileText, Download, Lock, Check, Loader2,
+  ArrowLeft, Sparkles, Wand2, FileText, Download, Lock, Check, Loader2, FileUp,
   Palette, PenLine, Gauge, Files, Plus, Trash2, X, Copy, ShieldCheck as ReviewIcon,
   ShieldCheck, GraduationCap, Briefcase, Rocket, Languages as LangIcon,
   Mail, ShieldCheck as SecureIcon,
