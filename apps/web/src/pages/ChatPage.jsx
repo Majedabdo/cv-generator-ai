@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUp, Paperclip, Mic, Sparkles, ArrowLeft, X, RotateCcw,
-  Loader2, FileUp, FileText, Wand2,
+  Loader2, FileUp, FileText, Wand2, Plus, Trash2, MessageSquare, Menu,
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import { useLang } from "@/context/LanguageContext";
@@ -61,7 +61,12 @@ export default function ChatPage() {
   const { t, lang } = useLang();
   const isAr = lang === "ar";
   const navigate = useNavigate();
-  const { messages, isStreaming, isLoadingHistory, sendMessage, clearMessages } = useIntegratedAi();
+  const {
+    messages, isStreaming, isLoadingHistory, sendMessage, clearMessages,
+    sessions, activeSessionId, createSession, deleteSession, setActiveSessionId
+  } = useIntegratedAi();
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [input, setInput] = useState("");
   const [selectedImages, setSelectedImages] = useState([]);
@@ -226,6 +231,13 @@ export default function ChatPage() {
       {/* Top bar */}
       <header className="flex h-16 shrink-0 items-center justify-between border-b border-border px-4 sm:px-6">
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSidebarOpen((o) => !o)}
+            className="grid h-9 w-9 place-items-center rounded-lg border border-border/60 bg-secondary/50 text-foreground/80 transition hover:text-foreground md:hidden"
+            aria-label="Toggle menu"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
           <Link
             to="/"
             className="grid h-9 w-9 place-items-center rounded-lg border border-border/60 bg-secondary/50 text-foreground/80 transition hover:text-foreground"
@@ -250,13 +262,78 @@ export default function ChatPage() {
               className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-secondary/50 px-3 py-1.5 text-xs font-medium text-foreground/80 transition hover:text-foreground disabled:opacity-50"
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              {isAr ? "محادثة جديدة" : "New chat"}
+              {isAr ? "مسح المحادثة" : "Clear chat"}
             </button>
           )}
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 relative overflow-hidden">
+        {/* Mobile Sidebar Backdrop */}
+        {sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm md:hidden"
+          />
+        )}
+
+        {/* Sidebar */}
+        <aside
+          className={`fixed inset-y-0 left-0 z-40 flex w-60 shrink-0 flex-col border-e border-border bg-card transition-transform duration-300 md:static md:translate-x-0 ${
+            sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          {/* New Chat Button */}
+          <div className="p-4 border-b border-border">
+            <button
+              onClick={() => {
+                createSession(isAr ? "محادثة جديدة" : "New Chat");
+                setSidebarOpen(false);
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl gradient-primary px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-600/25 transition active:scale-95"
+            >
+              <Plus className="h-4 w-4" />
+              {isAr ? "محادثة جديدة" : "New Chat"}
+            </button>
+          </div>
+
+          {/* Session List */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-1">
+            {sessions.map((s) => {
+              const isActive = s.id === activeSessionId;
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => {
+                    setActiveSessionId(s.id);
+                    setSidebarOpen(false);
+                  }}
+                  className={`group relative flex items-center justify-between rounded-xl px-3 py-2.5 text-sm transition cursor-pointer ${
+                    isActive
+                      ? "bg-secondary text-primary font-medium"
+                      : "hover:bg-secondary/50 text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground animate-pulse" />
+                    <span className="truncate">{s.title}</span>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSession(s.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/10 hover:text-destructive transition shrink-0"
+                    title={isAr ? "حذف المحادثة" : "Delete Chat"}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+
         {/* Conversation column */}
         <div className="flex min-h-0 flex-1 flex-col">
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">

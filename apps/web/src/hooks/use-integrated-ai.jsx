@@ -66,6 +66,8 @@ const ContentBlockType = Object.freeze({
 });
 
 const STORAGE_KEY = 'cvpilot-chat-session';
+const SESSIONS_STORAGE_KEY = 'cvpilot-chat-sessions';
+const ACTIVE_SESSION_ID_KEY = 'cvpilot-active-session-id';
 
 const SSEEventType = Object.freeze({
 	Content: 'content',
@@ -161,103 +163,101 @@ function mapAssistantMessages({ message }) {
 
 /**
  * Hook for streaming AI chat responses using fetch-based SSE.
- *
- * @example
- * const { messages, isStreaming, sendMessage } = useIntegratedAi();
- *
- * sendMessage('Tell me a joke');
+ * Supports multiple chat sessions stored in localStorage.
  */
 function useIntegratedAi() {
-	const [messages, setMessages] = useState([]);
+	const [sessions, setSessions] = useState([]);
+	const [activeSessionId, setActiveSessionId] = useState(null);
 	const [isStreaming, setIsStreaming] = useState(false);
 	const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+	
 	const abortControllerRef = useRef(null);
+	
+	const activeSession = sessions.find(s => s.id === activeSessionId);
+	const messages = activeSession ? activeSession.messages : [];
 	const messagesRef = useRef([]);
 
 	useEffect(() => {
 		messagesRef.current = messages;
 	}, [messages]);
 
+	// Load sessions from localStorage on mount
 	useEffect(() => {
-		async function loadHistory() {
-			try {
-				if (!pocketbaseClient.authStore.isValid) {
-					try {
-						const saved = localStorage.getItem(STORAGE_KEY);
-						if (saved) {
-							const parsed = JSON.parse(saved);
-							if (Array.isArray(parsed) && parsed.length > 0) {
-								setMessages(parsed);
-							}
-						}
-					} catch {
-						// ignore corrupt session
-					}
-					return [];
-				}
+		try {
+			const savedSessions = localStorage.getItem(SESSIONS_STORAGE_KEY);
+			const savedActiveId = localStorage.getItem(ACTIVE_SESSION_ID_KEY);
 			
-				const records = await pocketbaseClient.collection('_integratedAiMessages').getFullList({
-					sort: 'created',
-				});
-			
-				/** @type {HistoryMessage[]} */
-				const historyMessages = [];
-			
-				for (const record of records) {
-					if (record.role === MessageRole.User) {
-						historyMessages.push(mapUserMessage({ message: record.content }));
-						continue;
-					}
-			
-					historyMessages.push(...mapAssistantMessages({ message: record.content }));
-				}
-			
-				const chatMessages = historyMessages
-					.filter(msg => msg.role === 'user' || msg.role === 'assistant')
-					.map((msg) => {
-						const images = [...(msg.images || []), ...extractGeneratedImages(msg, historyMessages)];
+			let loadedSessions = [];
+			let loadedActiveId = null;
 
-						return {
-							role: msg.role,
-							content: msg.content,
-							...(images.length > 0 && { images }),
-						};
-					});
-
-				setMessages(chatMessages);
-			} catch (err) {
-				toast({
-					variant: 'destructive',
-					title: 'Error',
-					description: err.message,
-				});
-			} finally {
-				setIsLoadingHistory(false);
+			if (savedSessions) {
+				loadedSessions = JSON.parse(savedSessions);
 			}
-		}
 
-		loadHistory();
+			if (Array.isArray(loadedSessions) && loadedSessions.length > 0) {
+				loadedActiveId = savedActiveId && loadedSessions.some(s => s.id === savedActiveId)
+					? savedActiveId
+					: loadedSessions[0].id;
+			} else {
+				// No sessions exist, create a default one
+				const newId = 'session_' + Date.now();
+				loadedSessions = [{
+					id: newId,
+					title: 'New Chat',
+					messages: [],
+					created: new Date().toISOString()
+				}];
+				loadedActiveId = newId;
+			}
+
+			setSessions(loadedSessions);
+			setActiveSessionId(loadedActiveId);
+		} catch {
+			const newId = 'session_' + Date.now();
+			setSessions([{ id: newId, title: 'New Chat', messages: [], created: new Date().toISOString() }]);
+			setActiveSessionId(newId);
+		} finally {
+			setIsLoadingHistory(false);
+		}
 	}, []);
 
+	// Save sessions to localStorage when they change
 	useEffect(() => {
-		if (isLoadingHistory) {
-			return;
-		}
-		if (pocketbaseClient.authStore.isValid) {
-			return;
-		}
+		if (isLoadingHistory) return;
 		try {
-			if (messages.length > 0) {
-				const persistable = messages.filter(m => !(m.role === 'assistant' && !m.content));
-				localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+			if (sessions.length > 0) {
+				localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
 			} else {
+				localStorage.removeItem(SESSIONS_STORAGE_KEY);
+			}
+		} catch {
+			// ignore
+		}
+	}, [sessions, isLoadingHistory]);
+
+	// Save active session ID and synchronize current chat messages for the resume builder transcript
+	useEffect(() => {
+		if (isLoadingHistory) return;
+		try {
+			if (activeSessionId) {
+				localStorage.setItem(ACTIVE_SESSION_ID_KEY, activeSessionId);
+				const active = sessions.find(s => s.id === activeSessionId);
+				if (active && active.messages.length > 0) {
+					const persistable = active.messages.filter(m => !(m.role === 'assistant' && !m.content));
+					localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
+				} else {
+					localStorage.removeItem(STORAGE_KEY);
+				}
+			} else {
+				localStorage.removeItem(ACTIVE_SESSION_ID_KEY);
 				localStorage.removeItem(STORAGE_KEY);
 			}
 		} catch {
-			// storage unavailable
+			// ignore
 		}
-	}, [messages, isLoadingHistory]);
+	}, [activeSessionId, sessions, isLoadingHistory]);
 
+	// Clean up abort controller on unmount
 	useEffect(() => {
 		return () => {
 			if (abortControllerRef.current) {
@@ -266,9 +266,63 @@ function useIntegratedAi() {
 		};
 	}, []);
 
+	// Update messages in the currently active session
+	const updateActiveSessionMessages = useCallback((fn) => {
+		setSessions((prevSessions) => {
+			return prevSessions.map((session) => {
+				if (session.id === activeSessionId) {
+					const updatedMessages = typeof fn === 'function' ? fn(session.messages) : fn;
+					return { ...session, messages: updatedMessages };
+				}
+				return session;
+			});
+		});
+	}, [activeSessionId]);
+
+	// Rename session
+	const renameSession = useCallback((id, newTitle) => {
+		setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
+	}, []);
+
+	// Create a new session
+	const createSession = useCallback((title = 'New Chat') => {
+		const newId = 'session_' + Date.now();
+		const newSession = {
+			id: newId,
+			title: title,
+			messages: [],
+			created: new Date().toISOString()
+		};
+		setSessions(prev => [newSession, ...prev]);
+		setActiveSessionId(newId);
+		return newId;
+	}, []);
+
+	// Delete a session
+	const deleteSession = useCallback((id) => {
+		setSessions(prev => {
+			const filtered = prev.filter(s => s.id !== id);
+			if (filtered.length === 0) {
+				const newId = 'session_' + Date.now();
+				const newSession = {
+					id: newId,
+					title: 'New Chat',
+					messages: [],
+					created: new Date().toISOString()
+				};
+				setActiveSessionId(newId);
+				return [newSession];
+			}
+			if (activeSessionId === id) {
+				setActiveSessionId(filtered[0].id);
+			}
+			return filtered;
+		});
+	}, [activeSessionId]);
+
 	const handleSSEEvent = useCallback((parsed) => {
 		if (parsed.type === SSEEventType.Content) {
-			setMessages((prev) => {
+			updateActiveSessionMessages((prev) => {
 				const updated = [...prev];
 				const last = updated[updated.length - 1];
 				updated[updated.length - 1] = {
@@ -284,7 +338,7 @@ function useIntegratedAi() {
 			const isImageResult = parsed.data.tool_name === 'generate_image' && parsed.data.content;
 
 			if (isImageResult) {
-				setMessages((prev) => {
+				updateActiveSessionMessages((prev) => {
 					const updated = [...prev];
 					const last = updated[updated.length - 1];
 					updated[updated.length - 1] = {
@@ -296,14 +350,11 @@ function useIntegratedAi() {
 				});
 			}
 		}
-	}, []);
+	}, [updateActiveSessionMessages]);
 
 	const sendMessage = useCallback(async (userMessage, images = []) => {
 		setIsStreaming(true);
 
-		// Anonymous chats have no server-side memory (getHistory needs a userId),
-		// so we replay the running transcript to the model each turn. This is what
-		// lets Pilot remember analyzed documents and never re-ask answered questions.
 		const prior = messagesRef.current.filter(
 			m => m.content && (m.role === 'user' || m.role === 'assistant'),
 		);
@@ -314,7 +365,13 @@ function useIntegratedAi() {
 			? `[CONVERSATION SO FAR — this is our ongoing session; use it as your memory. Do NOT re-ask anything already answered or already analyzed below.]\n${transcript}\n\n[NEW USER MESSAGE]\n${userMessage}`
 			: userMessage;
 
-		setMessages(prev => [
+		// If this is the first message in the session, automatically rename the session based on it
+		if (messagesRef.current.length === 0) {
+			const cleanTitle = userMessage.length > 28 ? userMessage.slice(0, 25) + '...' : userMessage;
+			renameSession(activeSessionId, cleanTitle || 'New Chat');
+		}
+
+		updateActiveSessionMessages(prev => [
 			...prev,
 			{
 				role: 'user',
@@ -381,7 +438,7 @@ function useIntegratedAi() {
 					}
 
 					if (parsed.type === 'document_extracted') {
-						setMessages((prev) => {
+						updateActiveSessionMessages((prev) => {
 							const updated = [...prev];
 							const userMsgIndex = updated.length - 2;
 							if (userMsgIndex >= 0 && updated[userMsgIndex].role === 'user') {
@@ -402,8 +459,7 @@ function useIntegratedAi() {
 			}
 		} catch (err) {
 			if (err.name === 'AbortError') {
-				// Request was cancelled (navigation, unmount, or user stop) — clean up silently.
-				setMessages((prev) => {
+				updateActiveSessionMessages((prev) => {
 					const updated = [...prev];
 					const last = updated[updated.length - 1];
 					if (last?.role === 'assistant' && !last.content) {
@@ -422,8 +478,7 @@ function useIntegratedAi() {
 				description: err.message,
 			});
 
-			// Drop the empty assistant placeholder so no blank bubble is left behind.
-			setMessages((prev) => {
+			updateActiveSessionMessages((prev) => {
 				const updated = [...prev];
 				const last = updated[updated.length - 1];
 
@@ -437,23 +492,24 @@ function useIntegratedAi() {
 			abortControllerRef.current = null;
 			setIsStreaming(false);
 		}
-	}, [handleSSEEvent]);
+	}, [handleSSEEvent, updateActiveSessionMessages, activeSessionId, renameSession]);
 
 	const clearMessages = useCallback(() => {
-		setMessages([]);
-		try {
-			localStorage.removeItem(STORAGE_KEY);
-		} catch {
-			// storage unavailable
-		}
-	}, []);
+		updateActiveSessionMessages([]);
+	}, [updateActiveSessionMessages]);
 
 	return {
 		messages,
+		sessions,
+		activeSessionId,
 		isStreaming,
 		isLoadingHistory,
 		sendMessage,
+		createSession,
+		deleteSession,
 		clearMessages,
+		renameSession,
+		setActiveSessionId,
 	};
 }
 
