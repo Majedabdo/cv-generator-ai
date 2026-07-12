@@ -21,6 +21,7 @@ import { stripMarker } from "@/lib/resumeSignal";
 import AtsReport from "@/components/AtsReport";
 import QualityReport from "@/components/QualityReport";
 import { writePending } from "@/pages/PaymentPages";
+import PayPalCheckout, { usePayPalConfig } from "@/lib/paypalCheckout";
 
 const CHAT_KEY = "cvpilot-chat-session";
 
@@ -347,36 +348,18 @@ export default function BuilderPage() {
     generate();
   }, [location.state, stage, candidateInfo, generate]);
 
-  // Real PayPal Checkout: create an order server-side, persist the pending
-  // resume payload, then redirect the buyer to PayPal's official payment page.
-  const startCheckout = useCallback(async (payload) => {
-    setPaying(true);
-    try {
-      writePending({
-        mode: "builder",
-        email: payload.email,
-        name: bundle?.resume?.fullName || "",
-        contentEn: bilingual?.en || null,
-        contentAr: bilingual?.ar || null,
-        template: templateId,
-        referralCode: (() => { try { return localStorage.getItem("cvpilot-ref") || ""; } catch { return ""; } })(),
-      });
-      const order = await integratedAiClient.fetch("/payments/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          resumeName: bundle?.resume?.fullName || "CVPilot Resume",
-          returnBase: window.location.origin,
-        }),
-      });
-      if (!order?.approveUrl) throw new Error("Could not start PayPal checkout.");
-      window.location.href = order.approveUrl;
-    } catch (err) {
-      setPaying(false);
-      toast({ variant: "destructive", title: isAr ? "تعذّر الدفع" : "Payment failed", description: err.message });
-    }
-  }, [bundle, bilingual, templateId, isAr]);
-
+  const handleApprove = useCallback(async ({ email, orderId }) => {
+    writePending({
+      mode: "builder",
+      email,
+      name: bundle?.resume?.fullName || "",
+      contentEn: bilingual?.en || null,
+      contentAr: bilingual?.ar || null,
+      template: templateId,
+      referralCode: (() => { try { return localStorage.getItem("cvpilot-ref") || ""; } catch { return ""; } })(),
+    });
+    navigate(`/payment-success?order_id=${orderId}`);
+  }, [bundle, bilingual, templateId, navigate]);
   const requireUnlock = (fn) => () => {
     if (!unlocked) { setShowPay(true); return; }
     fn();
@@ -659,7 +642,7 @@ export default function BuilderPage() {
       <AnimatePresence>
         {showPay && (
           <PayModal
-            isAr={isAr} paying={paying} onClose={() => !paying && setShowPay(false)} onPay={startCheckout}
+            isAr={isAr} onClose={() => setShowPay(false)} onApprove={handleApprove}
             authed={isAuthed} defaultEmail={user?.email || ""}
           />
         )}
@@ -750,23 +733,15 @@ function DocCard({ title, text, isAr }) {
   );
 }
 
-function PayModal({ isAr, paying, onClose, onPay, authed, defaultEmail }) {
+function PayModal({ isAr, onClose, onApprove, authed, defaultEmail }) {
   const [email, setEmail] = useState(defaultEmail || "");
   const [err, setErr] = useState("");
   const emailValid = email && email.includes("@");
+  const { loading, config } = usePayPalConfig();
 
   const benefits = isAr
     ? ["نسخة عربية وإنجليزية", "تنزيل PDF و DOCX و TXT للغتين", "تنزيلات غير محدودة", "3 تعديلات بالذكاء الاصطناعي", "حفظ السيرة للأبد"]
     : ["Arabic & English versions", "PDF, DOCX & TXT for both languages", "Unlimited downloads", "3 AI-powered edits", "Saved forever"];
-
-  const submit = () => {
-    setErr("");
-    if (!emailValid) {
-      setErr(isAr ? "أدخل بريداً إلكترونياً صحيحاً." : "Enter a valid email address.");
-      return;
-    }
-    onPay({ email, method: "paypal" });
-  };
 
   const inp = "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary";
 
@@ -799,26 +774,25 @@ function PayModal({ isAr, paying, onClose, onPay, authed, defaultEmail }) {
         </div>
 
         <div className="mt-4">
-          <label className="mb-2 block text-xs font-medium text-muted-foreground">{isAr ? "طريقة الدفع" : "Payment method"}</label>
-          <div className="flex items-center gap-2 rounded-xl border border-primary bg-primary/5 p-3">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#003087] text-xs font-extrabold italic text-white">PP</span>
-            <div>
-              <span className="block text-sm font-semibold">PayPal</span>
-              <span className="block text-[10px] text-muted-foreground">{isAr ? "الدفع الآمن عبر رصيد PayPal أو البطاقة" : "Secure checkout with your PayPal balance or card"}</span>
+          <label className="mb-2 block text-xs font-medium text-muted-foreground">{isAr ? "خيارات الدفع الآمن" : "Secure payment options"}</label>
+          {emailValid && config?.enabled ? (
+            <div className="mt-2 min-h-[150px]">
+              <PayPalCheckout
+                config={config}
+                onApprove={(orderId) => onApprove({ email, orderId })}
+                onError={(e) => setErr(e.message || "Payment failed")}
+              />
             </div>
-          </div>
-          <p className="mt-3 rounded-lg bg-secondary/60 px-3 py-2.5 text-xs text-muted-foreground">
-            {isAr ? "ستتم إعادة توجيهك إلى صفحة PayPal الرسمية لإتمام الدفع بأمان." : "You'll be redirected to PayPal's official page to complete payment securely."}
-          </p>
+          ) : (
+            <div className="rounded-xl border border-border bg-secondary/35 p-6 text-center text-xs text-muted-foreground">
+              {isAr ? "أدخل بريداً إلكترونياً صحيحاً لإظهار خيارات الدفع والبطاقات." : "Enter a valid email to show payment & card options."}
+            </div>
+          )}
         </div>
 
         {err && <p className="mt-3 text-sm text-destructive">{err}</p>}
 
-        <button onClick={submit} disabled={paying || !emailValid}
-          className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0070ba] px-6 py-3.5 font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-[#005ea6] disabled:opacity-60">
-          {paying ? <><Loader2 className="h-5 w-5 animate-spin" /> {isAr ? "جارٍ التحويل إلى PayPal…" : "Redirecting to PayPal…"}</> : <><Lock className="h-4 w-4" /> {isAr ? "ادفع 2.69 دولار عبر PayPal" : "Pay $2.69 with PayPal"}</>}
-        </button>
-        <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-[11px] text-muted-foreground">
+        <p className="mt-5 flex items-center justify-center gap-1.5 text-center text-[11px] text-muted-foreground">
           <SecureIcon className="h-3.5 w-3.5 text-green-500" />
           {isAr ? "دفع آمن ومشفّر عبر SSL — متوافق مع PCI." : "Encrypted, SSL-secured checkout — PCI compliant."}
         </p>

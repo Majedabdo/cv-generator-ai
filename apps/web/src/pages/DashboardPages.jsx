@@ -14,6 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { exportTxt, exportDocx, exportResumePdf } from "@/lib/resumeExport";
 import { integratedAiClient } from "@/lib/integratedAiClient";
 import { writePending } from "@/pages/PaymentPages";
+import PayPalCheckout, { usePayPalConfig } from "@/lib/paypalCheckout";
 
 /* Unified bilingual download gate (Arabic + English, PDF/DOCX/TXT) — PayPal only, locked until payment. */
 function DownloadButtons({ r, unlocked, onChange, subtle }) {
@@ -28,6 +29,7 @@ function DownloadButtons({ r, unlocked, onChange, subtle }) {
   const [paying, setPaying] = useState(false);
   const [pending, setPending] = useState(null);
   const [localUnlocked, setLocalUnlocked] = useState(unlocked);
+  const { loading, config } = usePayPalConfig();
   useEffect(() => setLocalUnlocked(unlocked), [unlocked]);
 
   const runDownload = async ({ fmt, bundle, lang }) => {
@@ -50,24 +52,6 @@ function DownloadButtons({ r, unlocked, onChange, subtle }) {
     setPending(task);
     setOpen(true);
   };
-
-  const pay = async () => {
-    setPaying(true);
-    try {
-      writePending({ mode: "unlock", resumeId: r.id });
-      const order = await integratedAiClient.fetch("/payments/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeName: r.title, returnBase: window.location.origin }),
-      });
-      if (!order?.approveUrl) throw new Error("Could not start PayPal checkout.");
-      window.location.href = order.approveUrl;
-    } catch (err) {
-      setPaying(false);
-      toast({ variant: "destructive", title: "Unlock failed", description: err.message });
-    }
-  };
-
   const unlockedCls = subtle
     ? "inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary"
     : "inline-flex items-center gap-1 rounded-lg gradient-primary px-2.5 py-1.5 text-xs font-semibold text-white";
@@ -101,17 +85,22 @@ function DownloadButtons({ r, unlocked, onChange, subtle }) {
             </div>
             <h3 className="mt-4 text-xl font-extrabold">Unlock downloads for $2.69 USD (10 SAR)</h3>
             <p className="mt-1 text-sm text-muted-foreground">Unlimited Arabic &amp; English PDF, DOCX &amp; TXT downloads for “{r.title}”, forever. One-time payment.</p>
-            <div className="mt-4 flex items-center gap-2 rounded-xl border border-primary bg-primary/5 p-3">
-              <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#003087] text-xs font-extrabold italic text-white">PP</span>
-              <div>
-                <span className="block text-sm font-semibold">PayPal</span>
-                <span className="block text-[10px] text-muted-foreground">Secure checkout with your PayPal balance or card</span>
+            {config?.enabled ? (
+              <div className="mt-4 min-h-[150px]">
+                <PayPalCheckout
+                  config={config}
+                  onApprove={(orderId) => {
+                    writePending({ mode: "unlock", resumeId: r.id });
+                    window.location.href = `/payment-success?order_id=${orderId}`;
+                  }}
+                  onError={(e) => toast({ variant: "destructive", title: "Unlock failed", description: e.message })}
+                />
               </div>
-            </div>
-            <button onClick={pay} disabled={paying}
-              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0070ba] px-6 py-3 font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-[#005ea6] disabled:opacity-60">
-              {paying ? <><Loader2 className="h-5 w-5 animate-spin" /> Processing…</> : <><Lock className="h-4 w-4" /> Pay $2.69 with PayPal</>}
-            </button>
+            ) : (
+              <div className="rounded-xl border border-border bg-secondary/35 p-6 text-center text-xs text-muted-foreground">
+                Loading secure payment options...
+              </div>
+            )}
           </div>
         </div>
       )}
