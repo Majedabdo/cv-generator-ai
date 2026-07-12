@@ -56,6 +56,7 @@ export default function PayPalCheckout({ config, onApprove, onError, disabled })
       .then((paypal) => {
         if (cancelled || !ref.current) return;
         ref.current.innerHTML = "";
+        setStatus("ready");
         paypal
           .Buttons({
             style: { layout: "vertical", color: "blue", shape: "pill", label: "paypal" },
@@ -82,7 +83,6 @@ export default function PayPalCheckout({ config, onApprove, onError, disabled })
             onError: (err) => cbRef.current.onError?.(err),
           })
           .render(ref.current)
-          .then(() => !cancelled && setStatus("ready"))
           .catch(() => !cancelled && setStatus("error"));
       })
       .catch(() => !cancelled && setStatus("error"));
