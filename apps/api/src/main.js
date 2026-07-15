@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,6 +21,18 @@ function startPocketBase() {
 	const isWindows = process.platform === 'win32';
 	const pbBinary = isWindows ? 'pocketbase.exe' : 'pocketbase';
 	const pbPath = path.resolve(__dirname, '../../pocketbase', pbBinary);
+
+	// Kill any existing zombie pocketbase process to free the port and unlock the DB
+	if (!isWindows) {
+		try {
+			execSync('pkill -f pocketbase');
+			logger.info('Killed existing pocketbase processes via pkill');
+		} catch (_) {}
+		try {
+			execSync('killall pocketbase');
+			logger.info('Killed existing pocketbase processes via killall');
+		} catch (_) {}
+	}
 
 	logger.info(`Starting PocketBase from: ${pbPath}`);
 
