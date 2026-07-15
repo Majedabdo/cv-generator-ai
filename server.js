@@ -2,37 +2,72 @@
 const fs = require('fs');
 const path = require('path');
 
-const crashLogPath = path.resolve(__dirname, 'dist/apps/web/crash.txt');
+const logPath = path.resolve(__dirname, 'startup.log');
+const browserLogDir = path.resolve(__dirname, 'dist/apps/web');
+const browserLogPath = path.join(browserLogDir, 'startup.log');
 
-function logCrash(error) {
+function logMsg(msg) {
     try {
-        const message = `[${new Date().toISOString()}] CRASH: ${error?.stack || error}\n`;
-        fs.appendFileSync(crashLogPath, message);
-        console.error(message);
+        const message = `[${new Date().toISOString()}] ${msg}\n`;
+        fs.appendFileSync(logPath, message);
+        console.log(message);
+        
+        try {
+            if (!fs.existsSync(browserLogDir)) {
+                fs.mkdirSync(browserLogDir, { recursive: true });
+            }
+            fs.appendFileSync(browserLogPath, message);
+        } catch (_) {
+            // Ignore
+        }
     } catch (e) {
-        console.error('Failed to write crash log:', e);
+        console.error('Failed to write log:', e);
     }
 }
 
+// Initialize startup log
+try {
+    fs.writeFileSync(logPath, `[${new Date().toISOString()}] Server process starting...\n`);
+    if (!fs.existsSync(browserLogDir)) {
+        fs.mkdirSync(browserLogDir, { recursive: true });
+    }
+    fs.writeFileSync(browserLogPath, `[${new Date().toISOString()}] Server process starting...\n`);
+} catch (_) {
+    // Ignore
+}
+
 process.on('uncaughtException', (error) => {
-    logCrash(error);
+    logMsg(`CRASH (uncaughtException): ${error?.stack || error}`);
     process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-    logCrash(reason);
+    logMsg(`CRASH (unhandledRejection): ${reason?.stack || reason}`);
     process.exit(1);
 });
 
-console.log('[INFO] Crash logger initialized. Logs: ' + crashLogPath);
+logMsg('Crash logger and process handlers initialized.');
+
+// Ensure Passenger restart marker is touched if needed
+try {
+    const tmpDir = path.resolve(__dirname, 'tmp');
+    if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+    }
+    fs.writeFileSync(path.join(tmpDir, 'restart.txt'), String(Date.now()));
+    logMsg('Touched Passenger restart trigger (tmp/restart.txt).');
+} catch (e) {
+    logMsg(`Warning: Failed to touch restart.txt: ${e.message}`);
+}
 
 // Launch the ES module API server dynamically
 (async () => {
     try {
-        console.log("[INFO] Launching API Server via dynamic import...");
+        logMsg("Launching API Server via dynamic import...");
         await import('./apps/api/src/main.js');
+        logMsg("API Server import completed successfully.");
     } catch (err) {
-        logCrash(err);
+        logMsg(`FATAL API Server Launch Error: ${err?.stack || err}`);
         process.exit(1);
     }
 })();
