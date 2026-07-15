@@ -48,18 +48,6 @@ process.on('unhandledRejection', (reason) => {
 
 logMsg('Crash logger and process handlers initialized.');
 
-// Ensure Passenger restart marker is touched if needed
-try {
-    const tmpDir = path.resolve(__dirname, 'tmp');
-    if (!fs.existsSync(tmpDir)) {
-        fs.mkdirSync(tmpDir, { recursive: true });
-    }
-    fs.writeFileSync(path.join(tmpDir, 'restart.txt'), String(Date.now()));
-    logMsg('Touched Passenger restart trigger (tmp/restart.txt).');
-} catch (e) {
-    logMsg(`Warning: Failed to touch restart.txt: ${e.message}`);
-}
-
 // Launch the ES module API server dynamically
 (async () => {
     try {
