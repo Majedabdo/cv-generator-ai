@@ -17,7 +17,18 @@ import logger from './utils/logger.js';
 import { BodyLimit } from './constants/common.js';
 
 // Automatically start the PocketBase process in the background
-function startPocketBase() {
+async function startPocketBase() {
+	// Check if PocketBase is already running on port 8090 (important for multi-worker Passenger environments)
+	try {
+		const check = await fetch('http://127.0.0.1:8090/api/health', { method: 'HEAD' });
+		if (check.ok) {
+			logger.info('PocketBase is already running on port 8090, skipping spawn.');
+			return;
+		}
+	} catch (_) {
+		// Not running, proceed
+	}
+
 	const isWindows = process.platform === 'win32';
 	const pbBinary = isWindows ? 'pocketbase.exe' : 'pocketbase';
 	const pbPath = path.resolve(__dirname, '../../pocketbase', pbBinary);
