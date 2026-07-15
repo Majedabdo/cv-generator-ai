@@ -6,7 +6,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
-import net from 'net';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,34 +16,17 @@ import { globalRateLimit } from './middleware/global-rate-limit.js';
 import logger from './utils/logger.js';
 import { BodyLimit } from './constants/common.js';
 
-// Helper to check if a local port is active
-function checkPortOpen(port) {
-	return new Promise((resolve) => {
-		const socket = new net.Socket();
-		socket.setTimeout(400);
-		socket.on('connect', () => {
-			socket.destroy();
-			resolve(true);
-		});
-		socket.on('error', () => {
-			socket.destroy();
-			resolve(false);
-		});
-		socket.on('timeout', () => {
-			socket.destroy();
-			resolve(false);
-		});
-		socket.connect(port, '127.0.0.1');
-	});
-}
-
 // Automatically start the PocketBase process in the background
 async function startPocketBase() {
 	// Check if PocketBase is already running on port 8090 (important for multi-worker Passenger environments)
-	const isAlreadyRunning = await checkPortOpen(8090);
-	if (isAlreadyRunning) {
-		logger.info('PocketBase is already running on port 8090, skipping spawn.');
-		return;
+	try {
+		const check = await fetch('http://127.0.0.1:8090/api/health', { method: 'HEAD' });
+		if (check.ok) {
+			logger.info('PocketBase is already running on port 8090, skipping spawn.');
+			return;
+		}
+	} catch (_) {
+		// Not running, proceed
 	}
 
 	const isWindows = process.platform === 'win32';
