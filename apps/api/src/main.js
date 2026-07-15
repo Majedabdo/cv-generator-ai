@@ -33,20 +33,24 @@ function startPocketBase() {
 		}
 	}
 
-	const pbProcess = spawn(pbPath, ['serve', '--http=127.0.0.1:8090'], {
-		cwd: path.resolve(__dirname, '../../pocketbase'),
-		stdio: 'inherit',
-	});
+	try {
+		const pbProcess = spawn(pbPath, ['serve', '--http=127.0.0.1:8090'], {
+			cwd: path.resolve(__dirname, '../../pocketbase'),
+			stdio: 'ignore',
+		});
 
-	pbProcess.on('error', (err) => {
-		logger.error('Failed to start PocketBase process:', err);
-	});
+		pbProcess.on('error', (err) => {
+			logger.error('Failed to start PocketBase process:', err);
+		});
 
-	pbProcess.on('exit', (code) => {
-		logger.warn(`PocketBase process exited with code ${code}`);
-		// Auto-restart after 5 seconds if it crashes
-		setTimeout(startPocketBase, 5000);
-	});
+		pbProcess.on('exit', (code) => {
+			logger.warn(`PocketBase process exited with code ${code}`);
+			// Auto-restart after 5 seconds if it crashes
+			setTimeout(startPocketBase, 5000);
+		});
+	} catch (spawnError) {
+		logger.error('Synchronous PocketBase spawn error:', spawnError);
+	}
 }
 
 // Start PocketBase process
@@ -133,7 +137,7 @@ app.use('/', routes());
 app.use('/hcgi/api', routes());
 
 // Fallback to React app for all other routes
-app.get('*', (req, res, next) => {
+app.get('/*splat', (req, res, next) => {
 	if (req.path.startsWith('/hcgi/')) {
 		return next();
 	}
