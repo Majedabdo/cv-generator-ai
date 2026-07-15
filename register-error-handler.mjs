@@ -5,7 +5,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Log to the static web directory so it can be accessed via cvpilot.shop/crash.txt
 const crashLogPath = path.resolve(__dirname, 'dist/apps/web/crash.txt');
 
 function logCrash(error) {
