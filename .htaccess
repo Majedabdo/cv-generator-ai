@@ -1,6 +1,9 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # Do not rewrite API or database requests (let them pass to Node.js)
+    RewriteCond %{REQUEST_URI} !^/hcgi/
+
     # Prevent loop if it's already rewritten to dist/apps/web
     RewriteCond %{REQUEST_URI} !^/dist/apps/web/
 
