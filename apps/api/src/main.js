@@ -22,6 +22,21 @@ function startPocketBase() {
 	const pbBinary = isWindows ? 'pocketbase.exe' : 'pocketbase';
 	const pbPath = path.resolve(__dirname, '../../pocketbase', pbBinary);
 
+	const pbDataPath = path.resolve(__dirname, '../../pocketbase/pb_data');
+	const resetMarkerPath = path.resolve(__dirname, '../../pocketbase/reset_db_marker.txt');
+	if (fs.existsSync(resetMarkerPath)) {
+		logger.info('Reset database marker found! Deleting old pb_data directory to rebuild...');
+		try {
+			if (fs.existsSync(pbDataPath)) {
+				fs.rmSync(pbDataPath, { recursive: true, force: true });
+				logger.info('Successfully deleted old pb_data directory.');
+			}
+			fs.unlinkSync(resetMarkerPath);
+		} catch (err) {
+			logger.error('Failed to reset pb_data directory:', err);
+		}
+	}
+
 	logger.info(`Starting PocketBase from: ${pbPath}`);
 
 	// Set executable permissions if on Linux/macOS
