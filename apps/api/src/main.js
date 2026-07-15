@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn, execSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,18 +21,6 @@ function startPocketBase() {
 	const isWindows = process.platform === 'win32';
 	const pbBinary = isWindows ? 'pocketbase.exe' : 'pocketbase';
 	const pbPath = path.resolve(__dirname, '../../pocketbase', pbBinary);
-
-	// Kill any existing zombie pocketbase process to free the port and unlock the DB
-	if (!isWindows) {
-		try {
-			execSync('pkill -f pocketbase');
-			logger.info('Killed existing pocketbase processes via pkill');
-		} catch (_) {}
-		try {
-			execSync('killall pocketbase');
-			logger.info('Killed existing pocketbase processes via killall');
-		} catch (_) {}
-	}
 
 	logger.info(`Starting PocketBase from: ${pbPath}`);
 
@@ -136,36 +124,40 @@ app.get('/hcgi/api/diagnose', async (req, res) => {
 		}
 	}
 
-	// Try spawning pocketbase with a --version flag
+	// Try spawning pocketbase with a --version flag (no shell)
 	try {
-		const { execSync } = await import('child_process');
-		diagnostics.spawnTest = execSync(`"${pbPath}" --version`).toString().trim();
+		const result = spawnSync(pbPath, ['--version']);
+		if (result.error) {
+			diagnostics.spawnTest = `Error: ${result.error.message}`;
+		} else {
+			diagnostics.spawnTest = (result.stdout || result.stderr || '').toString().trim();
+		}
 	} catch (e) {
-		diagnostics.spawnTest = `Error: ${e.message} (stderr: ${e.stderr?.toString()})`;
+		diagnostics.spawnTest = `Catch Error: ${e.message}`;
 	}
 
-	// Try running in shell mode
+	// Try copying to /tmp and running it from there (no shell)
 	try {
-		const { execSync } = await import('child_process');
-		diagnostics.shellTest = execSync(`chmod +x "${pbPath}" && "${pbPath}" --version`, { shell: true }).toString().trim();
-	} catch (e) {
-		diagnostics.shellTest = `Error: ${e.message} (stderr: ${e.stderr?.toString()})`;
-	}
-
-	// Try copying to /tmp and running it from there
-	try {
-		const { execSync } = await import('child_process');
 		const tmpPbPath = '/tmp/pocketbase_diag';
 		if (fs.existsSync(pbPath)) {
 			fs.copyFileSync(pbPath, tmpPbPath);
-			fs.chmodSync(tmpPbPath, '755');
-			diagnostics.tmpFolderExecuteTest = execSync(`${tmpPbPath} --version`).toString().trim();
+			try {
+				fs.chmodSync(tmpPbPath, '755');
+			} catch (chmodErr) {
+				diagnostics.tmpFolderExecuteTest = `Chmod failed: ${chmodErr.message}`;
+			}
+			const result = spawnSync(tmpPbPath, ['--version']);
+			if (result.error) {
+				diagnostics.tmpFolderExecuteTest = `Spawn Error: ${result.error.message}`;
+			} else {
+				diagnostics.tmpFolderExecuteTest = (result.stdout || result.stderr || '').toString().trim();
+			}
 			fs.unlinkSync(tmpPbPath);
 		} else {
 			diagnostics.tmpFolderExecuteTest = 'PocketBase binary path does not exist';
 		}
 	} catch (e) {
-		diagnostics.tmpFolderExecuteTest = `Error: ${e.message} (stderr: ${e.stderr?.toString()})`;
+		diagnostics.tmpFolderExecuteTest = `Catch Error: ${e.message}`;
 	}
 
 	res.json(diagnostics);
