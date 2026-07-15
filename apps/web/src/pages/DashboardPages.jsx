@@ -30,6 +30,30 @@ function DownloadButtons({ r, unlocked, onChange, subtle }) {
   const [pending, setPending] = useState(null);
   const [localUnlocked, setLocalUnlocked] = useState(unlocked);
   const { loading, config } = usePayPalConfig();
+  const { user } = useAuth();
+
+  const [couponCode, setCouponCode] = useState("");
+  const [couponApplied, setCouponApplied] = useState(null);
+  const [couponErr, setCouponErr] = useState("");
+  const [checkingCoupon, setCheckingCoupon] = useState(false);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCheckingCoupon(true);
+    setCouponErr("");
+    try {
+      const record = await pb.collection("coupons").getFirstListItem(
+        `code="${couponCode.trim().toUpperCase()}" && active=true`
+      );
+      setCouponApplied(record);
+    } catch (_) {
+      setCouponErr("Invalid or expired promo code.");
+      setCouponApplied(null);
+    } finally {
+      setCheckingCoupon(false);
+    }
+  };
+
   useEffect(() => setLocalUnlocked(unlocked), [unlocked]);
 
   const runDownload = async ({ fmt, bundle, lang }) => {
@@ -57,6 +81,12 @@ function DownloadButtons({ r, unlocked, onChange, subtle }) {
     : "inline-flex items-center gap-1 rounded-lg gradient-primary px-2.5 py-1.5 text-xs font-semibold text-white";
   const lockedCls = "inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary";
 
+  const originalPrice = 2.69;
+  const currentPrice = couponApplied 
+    ? (originalPrice * (1 - (couponApplied.percentOff || 0) / 100) - (couponApplied.amountOff || 0))
+    : originalPrice;
+  const finalPrice = Math.max(0, currentPrice);
+
   return (
     <>
       <div className="space-y-2">
@@ -83,24 +113,52 @@ function DownloadButtons({ r, unlocked, onChange, subtle }) {
               <span className="grid h-11 w-11 place-items-center rounded-2xl gradient-primary text-white"><Lock className="h-5 w-5" /></span>
               <button onClick={() => !paying && setOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button>
             </div>
-            <h3 className="mt-4 text-xl font-extrabold">Unlock downloads for $2.69 USD (10 SAR)</h3>
+            <h3 className="mt-4 text-xl font-extrabold">
+              Unlock downloads for ${finalPrice.toFixed(2)} USD
+              {couponApplied && <span className="ms-2 text-green-500 font-bold text-xs">(Discount applied)</span>}
+            </h3>
             <p className="mt-1 text-sm text-muted-foreground">Unlimited Arabic &amp; English PDF, DOCX &amp; TXT downloads for “{r.title}”, forever. One-time payment.</p>
-            {config?.enabled ? (
-              <div className="mt-4 min-h-[150px]">
-                <PayPalCheckout
-                  config={config}
-                  onApprove={(orderId) => {
+            
+            <div className="mt-4">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Promo Code</label>
+              <div className="flex gap-2">
+                <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="Enter promo code" className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm uppercase outline-none focus:border-primary" disabled={checkingCoupon || !!couponApplied} />
+                <button onClick={handleApplyCoupon} disabled={checkingCoupon || !couponCode.trim() || !!couponApplied} className="rounded-lg gradient-primary px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                  {checkingCoupon ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                </button>
+              </div>
+              {couponApplied && <p className="mt-1 text-xs text-green-500">Coupon applied successfully!</p>}
+              {couponErr && <p className="mt-1 text-xs text-destructive">{couponErr}</p>}
+            </div>
+
+            <div className="mt-4">
+              {couponApplied?.percentOff === 100 || finalPrice <= 0 ? (
+                <button 
+                  onClick={() => {
                     writePending({ mode: "unlock", resumeId: r.id });
-                    window.location.href = `/payment-success?order_id=${orderId}`;
-                  }}
-                  onError={(e) => toast({ variant: "destructive", title: "Unlock failed", description: e.message })}
-                />
-              </div>
-            ) : (
-              <div className="rounded-xl border border-border bg-secondary/35 p-6 text-center text-xs text-muted-foreground">
-                Loading secure payment options...
-              </div>
-            )}
+                    window.location.href = `/payment-success?order_id=SANDBOX_COUPON_${couponApplied?.code || "FREE"}&email=${encodeURIComponent(user?.email || "")}`;
+                  }} 
+                  className="mt-2 w-full rounded-xl gradient-primary py-3.5 text-sm font-bold text-white shadow-lg active:scale-95 transition"
+                >
+                  Activate Free & Unlock Downloads
+                </button>
+              ) : config?.enabled ? (
+                <div className="mt-2 min-h-[150px]">
+                  <PayPalCheckout
+                    config={couponApplied ? { ...config, amount: finalPrice } : config}
+                    onApprove={(orderId) => {
+                      writePending({ mode: "unlock", resumeId: r.id });
+                      window.location.href = `/payment-success?order_id=${orderId}`;
+                    }}
+                    onError={(e) => toast({ variant: "destructive", title: "Unlock failed", description: e.message })}
+                  />
+                </div>
+              ) : (
+                <div className="rounded-xl border border-border bg-secondary/35 p-6 text-center text-xs text-muted-foreground">
+                  Payment gateway is temporarily unavailable.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

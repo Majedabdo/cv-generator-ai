@@ -739,11 +739,40 @@ function PayModal({ isAr, onClose, onApprove, authed, defaultEmail }) {
   const emailValid = email && email.includes("@");
   const { loading, config } = usePayPalConfig();
 
+  const [couponCode, setCouponCode] = useState("");
+  const [couponApplied, setCouponApplied] = useState(null);
+  const [couponErr, setCouponErr] = useState("");
+  const [checkingCoupon, setCheckingCoupon] = useState(false);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCheckingCoupon(true);
+    setCouponErr("");
+    try {
+      const record = await pb.collection("coupons").getFirstListItem(
+        `code="${couponCode.trim().toUpperCase()}" && active=true`
+      );
+      setCouponApplied(record);
+    } catch (_) {
+      setCouponErr(isAr ? "كود الخصم غير صالح أو منتهي الصلاحية." : "Invalid or expired promo code.");
+      setCouponApplied(null);
+    } finally {
+      setCheckingCoupon(false);
+    }
+  };
+
   const benefits = isAr
     ? ["نسخة عربية وإنجليزية", "تنزيل PDF و DOCX و TXT للغتين", "تنزيلات غير محدودة", "3 تعديلات بالذكاء الاصطناعي", "حفظ السيرة للأبد"]
     : ["Arabic & English versions", "PDF, DOCX & TXT for both languages", "Unlimited downloads", "3 AI-powered edits", "Saved forever"];
 
   const inp = "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-primary";
+
+  // Calculate price displayed
+  const originalPrice = 2.69;
+  const currentPrice = couponApplied 
+    ? (originalPrice * (1 - (couponApplied.percentOff || 0) / 100) - (couponApplied.amountOff || 0))
+    : originalPrice;
+  const finalPrice = Math.max(0, currentPrice);
 
   return (
     <motion.div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
@@ -757,8 +786,13 @@ function PayModal({ isAr, onClose, onApprove, authed, defaultEmail }) {
         </div>
         <h3 className="mt-4 text-2xl font-extrabold">{isAr ? "افتح سيرتك المهنية" : "Unlock your professional resume"}</h3>
         <div className="my-4 flex items-end gap-2">
-          <span className="text-4xl font-extrabold gradient-text">$2.69</span>
-          <span className="pb-1 text-sm text-muted-foreground">{isAr ? "USD (10 ريال) · دفعة واحدة" : "USD (10 SAR) · one-time"}</span>
+          <span className="text-4xl font-extrabold gradient-text">${finalPrice.toFixed(2)}</span>
+          <span className="pb-1 text-sm text-muted-foreground">
+            {isAr 
+              ? `USD (${Math.round(finalPrice * 3.75)} ريال) · دفعة واحدة` 
+              : `USD (${Math.round(finalPrice * 3.75)} SAR) · one-time`}
+            {couponApplied && <span className="ms-2 text-green-500 font-bold">({isAr ? "خصم مطبق" : "Discount applied"})</span>}
+          </span>
         </div>
         <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {benefits.map((b) => (
@@ -773,16 +807,43 @@ function PayModal({ isAr, onClose, onApprove, authed, defaultEmail }) {
           </div>
         </div>
 
-        <div className="mt-4">
-          <label className="mb-2 block text-xs font-medium text-muted-foreground">{isAr ? "خيارات الدفع الآمن" : "Secure payment options"}</label>
-          {emailValid && config?.enabled ? (
-            <div className="mt-2 min-h-[150px]">
-              <PayPalCheckout
-                config={config}
-                onApprove={(orderId) => onApprove({ email, orderId })}
-                onError={(e) => setErr(e.message || "Payment failed")}
-              />
+        {emailValid && (
+          <div className="mt-4">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">{isAr ? "كوبون الخصم" : "Promo Code"}</label>
+            <div className="flex gap-2">
+              <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder={isAr ? "أدخل كود الخصم" : "Enter promo code"} className={`${inp} uppercase`} disabled={checkingCoupon || !!couponApplied} />
+              <button onClick={handleApplyCoupon} disabled={checkingCoupon || !couponCode.trim() || !!couponApplied} className="rounded-lg gradient-primary px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                {checkingCoupon ? <Loader2 className="h-4 w-4 animate-spin" /> : (isAr ? "تطبيق" : "Apply")}
+              </button>
             </div>
+            {couponApplied && <p className="mt-1 text-xs text-green-500">{isAr ? "تم تطبيق الكوبون بنجاح!" : "Coupon applied successfully!"}</p>}
+            {couponErr && <p className="mt-1 text-xs text-destructive">{couponErr}</p>}
+          </div>
+        )}
+
+        <div className="mt-4">
+          <label className="mb-2 block text-xs font-medium text-muted-foreground">{isAr ? "خيارات الدفع والاشتراك" : "Payment & subscription options"}</label>
+          {emailValid ? (
+            couponApplied?.percentOff === 100 || finalPrice <= 0 ? (
+              <button 
+                onClick={() => onApprove({ email, orderId: "SANDBOX_COUPON_" + (couponApplied?.code || "FREE") })} 
+                className="mt-2 w-full rounded-xl gradient-primary py-3.5 text-sm font-bold text-white shadow-lg shadow-violet-500/20 active:scale-95 transition"
+              >
+                {isAr ? "تفعيل مجاني وكامل للخدمة" : "Activate Free & Full Access"}
+              </button>
+            ) : config?.enabled ? (
+              <div className="mt-2 min-h-[150px]">
+                <PayPalCheckout
+                  config={couponApplied ? { ...config, amount: finalPrice } : config}
+                  onApprove={(orderId) => onApprove({ email, orderId })}
+                  onError={(e) => setErr(e.message || "Payment failed")}
+                />
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-secondary/35 p-6 text-center text-xs text-muted-foreground">
+                {isAr ? "بوابة الدفع غير متاحة حالياً." : "Payment gateway is temporarily unavailable."}
+              </div>
+            )
           ) : (
             <div className="rounded-xl border border-border bg-secondary/35 p-6 text-center text-xs text-muted-foreground">
               {isAr ? "أدخل بريداً إلكترونياً صحيحاً لإظهار خيارات الدفع والبطاقات." : "Enter a valid email to show payment & card options."}
