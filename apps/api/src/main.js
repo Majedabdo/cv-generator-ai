@@ -110,6 +110,67 @@ app.use(express.urlencoded({
 	limit: BodyLimit,
 }));
 
+// Diagnostics endpoint to test binary execution on Hostinger
+app.get('/hcgi/api/diagnose', async (req, res) => {
+	const isWindows = process.platform === 'win32';
+	const pbBinary = isWindows ? 'pocketbase.exe' : 'pocketbase';
+	const pbPath = path.resolve(__dirname, '../../pocketbase', pbBinary);
+	
+	const diagnostics = {
+		platform: process.platform,
+		arch: process.arch,
+		nodeVersion: process.version,
+		pbPathExists: fs.existsSync(pbPath),
+		pbPermissions: null,
+		spawnTest: null,
+		shellTest: null,
+		tmpFolderExecuteTest: null,
+	};
+
+	if (fs.existsSync(pbPath)) {
+		try {
+			const stats = fs.statSync(pbPath);
+			diagnostics.pbPermissions = stats.mode.toString(8);
+		} catch (e) {
+			diagnostics.pbPermissions = `Error: ${e.message}`;
+		}
+	}
+
+	// Try spawning pocketbase with a --version flag
+	try {
+		const { execSync } = await import('child_process');
+		diagnostics.spawnTest = execSync(`"${pbPath}" --version`).toString().trim();
+	} catch (e) {
+		diagnostics.spawnTest = `Error: ${e.message} (stderr: ${e.stderr?.toString()})`;
+	}
+
+	// Try running in shell mode
+	try {
+		const { execSync } = await import('child_process');
+		diagnostics.shellTest = execSync(`chmod +x "${pbPath}" && "${pbPath}" --version`, { shell: true }).toString().trim();
+	} catch (e) {
+		diagnostics.shellTest = `Error: ${e.message} (stderr: ${e.stderr?.toString()})`;
+	}
+
+	// Try copying to /tmp and running it from there
+	try {
+		const { execSync } = await import('child_process');
+		const tmpPbPath = '/tmp/pocketbase_diag';
+		if (fs.existsSync(pbPath)) {
+			fs.copyFileSync(pbPath, tmpPbPath);
+			fs.chmodSync(tmpPbPath, '755');
+			diagnostics.tmpFolderExecuteTest = execSync(`${tmpPbPath} --version`).toString().trim();
+			fs.unlinkSync(tmpPbPath);
+		} else {
+			diagnostics.tmpFolderExecuteTest = 'PocketBase binary path does not exist';
+		}
+	} catch (e) {
+		diagnostics.tmpFolderExecuteTest = `Error: ${e.message} (stderr: ${e.stderr?.toString()})`;
+	}
+
+	res.json(diagnostics);
+});
+
 // Proxy PocketBase requests to localhost:8090
 app.use('/hcgi/platform', async (req, res) => {
 	const targetUrl = `http://localhost:8090${req.originalUrl.replace(/^\/hcgi\/platform/, '')}`;
