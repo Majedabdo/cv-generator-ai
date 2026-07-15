@@ -4,9 +4,8 @@
     # Prevent loop if it's already rewritten to dist/apps/web
     RewriteCond %{REQUEST_URI} !^/dist/apps/web/
 
-    # Skip files and directories that actually exist in the root
+    # Skip files that actually exist in the root
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteCond %{REQUEST_FILENAME} !-d
 
     # Rewrite all requests to the built React app folder
     RewriteRule ^(.*)$ dist/apps/web/$1 [L]
