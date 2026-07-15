@@ -2,6 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 import routes from './routes/index.js';
 import { errorMiddleware } from './middleware/error.js';
@@ -51,7 +56,51 @@ app.use(express.urlencoded({
 	limit: BodyLimit,
 }));
 
+// Proxy PocketBase requests to localhost:8090
+app.use('/hcgi/platform', async (req, res) => {
+	const targetUrl = `http://localhost:8090${req.originalUrl.replace(/^\/hcgi\/platform/, '')}`;
+	try {
+		const headers = { ...req.headers };
+		delete headers.host;
+
+		const fetchOptions = {
+			method: req.method,
+			headers: headers,
+		};
+
+		if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+			fetchOptions.body = JSON.stringify(req.body);
+		}
+
+		const response = await fetch(targetUrl, fetchOptions);
+
+		res.status(response.status);
+		response.headers.forEach((value, key) => {
+			res.setHeader(key, value);
+		});
+
+		const data = await response.arrayBuffer();
+		res.send(Buffer.from(data));
+	} catch (error) {
+		logger.error('PocketBase proxy failed:', error);
+		res.status(500).json({ error: 'PocketBase connection failed' });
+	}
+});
+
+// Serve static files from the React build folder in production
+const distPath = path.join(__dirname, '../../../dist/apps/web');
+app.use(express.static(distPath));
+
 app.use('/', routes());
+app.use('/hcgi/api', routes());
+
+// Fallback to React app for all other routes
+app.get('*', (req, res, next) => {
+	if (req.path.startsWith('/hcgi/')) {
+		return next();
+	}
+	res.sendFile(path.join(distPath, 'index.html'));
+});
 
 app.use(errorMiddleware);
 
