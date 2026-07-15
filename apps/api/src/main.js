@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,6 +15,42 @@ import { errorMiddleware } from './middleware/error.js';
 import { globalRateLimit } from './middleware/global-rate-limit.js';
 import logger from './utils/logger.js';
 import { BodyLimit } from './constants/common.js';
+
+// Automatically start the PocketBase process in the background
+function startPocketBase() {
+	const isWindows = process.platform === 'win32';
+	const pbBinary = isWindows ? 'pocketbase.exe' : 'pocketbase';
+	const pbPath = path.resolve(__dirname, '../../pocketbase', pbBinary);
+
+	logger.info(`Starting PocketBase from: ${pbPath}`);
+
+	// Set executable permissions if on Linux/macOS
+	if (!isWindows) {
+		try {
+			fs.chmodSync(pbPath, '755');
+		} catch (err) {
+			logger.error('Failed to set pocketbase executable permissions:', err);
+		}
+	}
+
+	const pbProcess = spawn(pbPath, ['serve', '--http=127.0.0.1:8090'], {
+		cwd: path.resolve(__dirname, '../../pocketbase'),
+		stdio: 'inherit',
+	});
+
+	pbProcess.on('error', (err) => {
+		logger.error('Failed to start PocketBase process:', err);
+	});
+
+	pbProcess.on('exit', (code) => {
+		logger.warn(`PocketBase process exited with code ${code}`);
+		// Auto-restart after 5 seconds if it crashes
+		setTimeout(startPocketBase, 5000);
+	});
+}
+
+// Start PocketBase process
+startPocketBase();
 
 const app = express();
 

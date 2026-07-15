@@ -18,8 +18,6 @@ out/
 
 # Pocketbase database and executable
 **/pb_data/
-**/pocketbase
-**/pocketbase.exe
 **/pb_data/*
 !**/pb_hooks/
 !**/pb_migrations/
