@@ -18,6 +18,41 @@ import { BodyLimit } from './constants/common.js';
 
 // Automatically start the PocketBase process in the background
 async function startPocketBase() {
+	const isWindows = process.platform === 'win32';
+	const pbBinary = isWindows ? 'pocketbase.exe' : 'pocketbase';
+	const pbPath = path.resolve(__dirname, '../../pocketbase', pbBinary);
+
+	const pbDataPath = path.resolve(__dirname, '../../pocketbase/pb_data');
+	const resetMarkerPath = path.resolve(__dirname, '../../pocketbase/reset_db_marker.txt');
+	if (fs.existsSync(resetMarkerPath)) {
+		logger.info('Reset database marker found! Killing old pocketbase and deleting old pb_data directory to rebuild...');
+		try {
+			// Terminate any running pocketbase processes to free ports and locks
+			try {
+				const { execSync } = await import('child_process');
+				if (isWindows) {
+					execSync('taskkill /f /im pocketbase.exe');
+				} else {
+					execSync('pkill -f pocketbase');
+				}
+				logger.info('Successfully killed existing pocketbase processes.');
+			} catch (_) {
+				// Ignore if no process is running
+			}
+
+			// Small sleep to ensure files are released
+			await new Promise((r) => setTimeout(r, 1000));
+
+			if (fs.existsSync(pbDataPath)) {
+				fs.rmSync(pbDataPath, { recursive: true, force: true });
+				logger.info('Successfully deleted old pb_data directory.');
+			}
+			fs.unlinkSync(resetMarkerPath);
+		} catch (err) {
+			logger.error('Failed to reset pb_data directory:', err);
+		}
+	}
+
 	// Check if PocketBase is already running on port 8090 (important for multi-worker Passenger environments)
 	try {
 		const check = await fetch('http://127.0.0.1:8090/api/health', { method: 'HEAD' });
@@ -27,25 +62,6 @@ async function startPocketBase() {
 		}
 	} catch (_) {
 		// Not running, proceed
-	}
-
-	const isWindows = process.platform === 'win32';
-	const pbBinary = isWindows ? 'pocketbase.exe' : 'pocketbase';
-	const pbPath = path.resolve(__dirname, '../../pocketbase', pbBinary);
-
-	const pbDataPath = path.resolve(__dirname, '../../pocketbase/pb_data');
-	const resetMarkerPath = path.resolve(__dirname, '../../pocketbase/reset_db_marker.txt');
-	if (fs.existsSync(resetMarkerPath)) {
-		logger.info('Reset database marker found! Deleting old pb_data directory to rebuild...');
-		try {
-			if (fs.existsSync(pbDataPath)) {
-				fs.rmSync(pbDataPath, { recursive: true, force: true });
-				logger.info('Successfully deleted old pb_data directory.');
-			}
-			fs.unlinkSync(resetMarkerPath);
-		} catch (err) {
-			logger.error('Failed to reset pb_data directory:', err);
-		}
 	}
 
 	logger.info(`Starting PocketBase from: ${pbPath}`);
@@ -80,7 +96,7 @@ async function startPocketBase() {
 }
 
 // Start PocketBase process
-startPocketBase();
+await startPocketBase();
 
 const app = express();
 
