@@ -96,7 +96,7 @@ async function startPocketBase() {
 }
 
 // Start PocketBase process
-await startPocketBase();
+startPocketBase();
 
 const app = express();
 
